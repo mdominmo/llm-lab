@@ -1,0 +1,20 @@
+# §6.1 — Tailscale en el PC Linux, contenerizado.
+# Aqui SI va en Docker: el kernel es compartido, asi que `network_mode: host`
+# da el namespace de red real del host (a diferencia del Mac, §3.2).
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    hostname: linux-dev
+    network_mode: host
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    volumes:
+      - ./tailscale-state:/var/lib/tailscale   # imprescindible: identidad del nodo
+    environment:
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_AUTHKEY: ${TS_AUTHKEY:-}              # solo primer arranque
+      # tailscaled escribiria el /etc/resolv.conf DEL CONTENEDOR, no el del host
+      # -> MagicDNS no llegaria. Se resuelve con /etc/hosts (ver 10-hosts.sh).
+      TS_EXTRA_ARGS: --accept-dns=false
+    restart: unless-stopped

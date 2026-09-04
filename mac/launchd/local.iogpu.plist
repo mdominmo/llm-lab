@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Limite de memoria unificada reservable por la GPU, aplicado en cada arranque.
+  24576 MB (no 28672) porque Docker Desktop tambien reserva memoria.
+  Destino: /Library/LaunchDaemons/local.iogpu.plist
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>local.iogpu</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/sbin/sysctl</string>
+    <string>iogpu.wired_limit_mb=24576</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>

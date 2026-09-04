@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Alternativa al toggle "Run server on login" de LM Studio.
+  Es un AGENT, no un Daemon: Metal exige sesion grafica de usuario.
+  Sin KeepAlive: `lms server start` arranca el servidor y termina.
+  Destino: ~/Library/LaunchAgents/local.lmstudio.plist
+  Sustituir USUARIO por la salida de `whoami` (lo hace 10-harden.sh).
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>local.lmstudio</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USUARIO/.lmstudio/bin/lms</string>
+    <string>server</string><string>start</string>
+    <string>--port</string><string>1234</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>

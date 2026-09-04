@@ -1,0 +1,11 @@
+# Secretos: nunca versionar
+.env
+*.env
+!*.env.example
+
+# Estado de runtime (identidad del nodo, logs de LiteLLM)
+tailscale-state/
+litellm-data/
+
+# Ruido del sistema
+.DS_Store
