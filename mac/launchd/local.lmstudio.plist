@@ -4,7 +4,8 @@
 <!--
   Alternativa al toggle "Run server on login" de LM Studio.
   Es un AGENT, no un Daemon: Metal exige sesion grafica de usuario.
-  Sin KeepAlive: `lms server start` arranca el servidor y termina.
+  Llama a 20-serve.sh, que espera al tailnet y ata el servidor a esa IP
+  (el toggle de la GUI solo sabe hacer 0.0.0.0, abierto a la LAN).
   Destino: ~/Library/LaunchAgents/local.lmstudio.plist
   Sustituir USUARIO por la salida de `whoami` (lo hace 10-harden.sh).
 -->
@@ -12,12 +13,9 @@
   <key>Label</key><string>local.lmstudio</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/USUARIO/.lmstudio/bin/lms</string>
-    <string>server</string><string>start</string>
-    <string>--port</string><string>1234</string>
-    <!-- Sin esto escucha solo en 127.0.0.1 y el PC no lo alcanza por el
-         tailnet. Equivale al toggle "Serve on Local Network" de la GUI. -->
-    <string>--bind</string><string>0.0.0.0</string>
+    <string>/Users/USUARIO/repositories/llm-lab/mac/scripts/20-serve.sh</string>
   </array>
   <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/tmp/lmstudio-serve.log</string>
+  <key>StandardErrorPath</key><string>/tmp/lmstudio-serve.log</string>
 </dict></plist>
