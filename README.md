@@ -84,15 +84,19 @@ mac/scripts/10-harden.sh              # pide sudo
    lms get qwen/qwen3-coder-30b        # variante MLX 4-bit, ~17GB
    ```
 
-2. Escuchar en la red, sin GUI (en 0.4.x el toggle *Serve on Local Network* está
-   escondido tras el modo Developer; `--bind` hace lo mismo):
+2. Arrancar el servidor atado **solo al tailnet**:
 
    ```bash
-   lms server start --port 1234 --bind 0.0.0.0
+   mac/scripts/20-serve.sh
    ```
 
-   El arranque automático lo cubre `mac/launchd/local.lmstudio.plist`, que ya
-   pasa `--bind` — no hace falta *Run server on login*.
+   El toggle *Serve on Local Network* de la GUI escucha en `0.0.0.0`, y el
+   servidor no pide autenticación: eso lo deja abierto a cualquiera que entre
+   en el wifi. El script resuelve la IP del tailnet y ata el puerto ahí. Desde
+   fuera de casa se llega igual, porque la `100.x` es la misma en todas partes.
+
+   El arranque automático lo cubre `mac/launchd/local.lmstudio.plist`, que
+   llama a este script — no hace falta *Run server on login*.
 
 3. Comprobar desde el PC:
 
@@ -159,6 +163,7 @@ vez por modelo, en la GUI de LM Studio o con `lms load <modelo> -c <tokens>`.
 |---|---|---|
 | `mac/launchd/local.iogpu.plist` | MAC | Límite de VRAM: 24576 MB |
 | `mac/launchd/local.lmstudio.plist` | MAC | Servidor al iniciar sesión (opcional) |
+| `mac/scripts/20-serve.sh` | MAC | Arranca el servidor atado al tailnet |
 | `linux/tailscale/docker-compose.yml` | PC | Tailscale |
 | `linux/tailscale/.env` | PC | `TS_AUTHKEY` (solo primer arranque) |
 | `linux/stack/docker-compose.yml` | PC | Open WebUI (opcional) |
@@ -178,7 +183,7 @@ Los `.env` no se versionan.
 | Estado del stack [PC] | `cd linux/stack && docker compose ps` |
 | Modelos disponibles [PC] | `curl -s http://macbook:1234/v1/models` |
 | Liberar un modelo de memoria [MAC] | `lms unload <modelo>` |
-| Reiniciar el motor [MAC] | `lms server stop && lms server start` |
+| Reiniciar el motor [MAC] | `lms server stop && mac/scripts/20-serve.sh` |
 | Modelo cargado [MAC] | `lms ps` |
 | Memoria de la GPU [MAC] | `sysctl iogpu.wired_limit_mb` |
 
@@ -197,7 +202,8 @@ reiniciar. Prueba en caliente, sin reiniciar:
 | `ping macbook` falla pero `docker exec tailscale tailscale ping macbook` da pong | El nodo va en *userspace-networking*: el túnel existe pero el kernel del host no lo ve. `ip -br addr show tailscale0` sale vacío o sin IPv4 | Comprobar `TS_USERSPACE: "false"` en `linux/tailscale/docker-compose.yml` y recrear el contenedor |
 | `tailscale0` pierde la IP cada minuto; logs con `ip rule deleted` | Hay un segundo `tailscaled` en el host (otro proyecto en `network_mode: host`) | `docker ps \| grep tailscale` y parar el que sobre |
 | Tras reiniciar el PC, el contenedor reinicia en bucle con `invalid key` y el nodo queda deslogueado | `containerboot` reintentó autenticar con la `TS_AUTHKEY`, que es de un solo uso | `TS_AUTH_ONCE: "true"` en el compose y comentar `TS_AUTHKEY` en `.env`. Para recuperar la sesión, visitar el enlace que sale en `docker logs tailscale` |
-| `:1234` no responde desde el PC | El servidor escucha solo en `127.0.0.1` | `lms server start --port 1234 --bind 0.0.0.0` [MAC]; comprobar con `lsof -nP -iTCP:1234 -sTCP:LISTEN` |
+| `:1234` no responde desde el PC | El servidor no está atado al tailnet | `mac/scripts/20-serve.sh` [MAC]; comprobar con `lsof -nP -iTCP:1234 -sTCP:LISTEN`, debe decir `100.x.y.z:1234` |
+| El servidor no arranca al encender el Mac | El tailnet tardó más de 2 min en levantar | Ver `/tmp/lmstudio-serve.log` [MAC] y relanzar `mac/scripts/20-serve.sh` |
 | `lms: command not found` [MAC] | LM Studio sin instalar, o instalado pero nunca abierto: el CLI vive dentro del bundle y `bootstrap` exige un primer arranque | Instalar, abrir la app una vez y `"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms" bootstrap` |
 | Open WebUI no resuelve `macbook` | `MACBOOK_IP` mal en `linux/stack/.env` | Corregir y `docker compose up -d` |
 | Un modelo no carga y da error de memoria | El guardarraíl bloquea la carga; el TTL es por tiempo, no libera sitio | `lms unload <otro-modelo>` [MAC] |
