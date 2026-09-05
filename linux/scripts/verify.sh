@@ -42,6 +42,16 @@ else
   fail "sin generacion en $HOST:1234 (¿modelo descargado? 'lms ls' en el Mac)"; rc=1
 fi
 
+ctx=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" '~/.lmstudio/bin/lms ps 2>/dev/null' 2>/dev/null \
+      | awk '{for(i=1;i<=NF;i++) if($i=="GB"){print $(i+1); exit}}')
+if [[ -z "$ctx" ]]; then
+  warn "no puedo leer el contexto (sin modelo cargado o sin ssh)"
+elif [[ "$ctx" =~ ^[0-9]+$ ]] && (( ctx >= 32768 )); then
+  ok "contexto $ctx"
+else
+  fail "contexto $ctx: OpenCode manda ~10.700 tokens y se truncaran -> mac/scripts/30-context.sh"; rc=1
+fi
+
 echo
 echo "== FASE 4: cliente =="
 command -v opencode >/dev/null 2>&1 && ok "opencode: $(opencode --version 2>&1 | head -1)" \

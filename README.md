@@ -98,7 +98,18 @@ mac/scripts/10-harden.sh              # pide sudo
    El arranque automático lo cubre `mac/launchd/local.lmstudio.plist`, que
    llama a este script — no hace falta *Run server on login*.
 
-3. Comprobar desde el PC:
+3. **Contexto por defecto: 32k.** Ajuste global, no por modelo:
+
+   ```bash
+   mac/scripts/30-context.sh
+   ```
+
+   Sin esto nada funciona con OpenCode: manda ~10.700 tokens de prompt de
+   sistema y herramientas antes de que escribas nada, y con el valor de fábrica
+   (8192) LM Studio aplica `TruncateMiddle` y borra el 97%. El modelo responde
+   saludos genéricos porque nunca ve ni tu pregunta ni sus instrucciones.
+
+4. Comprobar desde el PC:
 
    ```bash
    curl http://macbook:1234/v1/models
@@ -149,11 +160,14 @@ opencode
 `macbook/qwen/qwen3-coder-30b` es el modelo por defecto; el subagente `explorer`
 usa el mismo. Todo el tráfico se queda en casa.
 
-Añadir un modelo son dos pasos y no se repiten: `lms get <modelo>` en el Mac, y
-una entrada más en `models` de `linux/opencode/opencode.json`. LM Studio lo carga
-solo al recibir la primera petición, con un contexto que sabe que cabe en los
-32 GB. Ese contexto solo se toca si una conversación se queda corta: se fija una
-vez por modelo, en la GUI de LM Studio o con `lms load <modelo> -c <tokens>`.
+Añadir un modelo son dos pasos: `lms get <modelo>` en el Mac, y una entrada más
+en `models` de `linux/opencode/opencode.json`. LM Studio lo carga solo al recibir
+la primera petición, con los 32k de `defaultContextLength` — el contexto **no**
+hay que fijarlo modelo a modelo.
+
+El modelo cargado se descarga solo a la hora sin uso (`jitModelTTL`), y al cargar
+otro se libera el anterior (`unloadPreviousJITModelOnLoad`). No hay que gestionar
+memoria a mano.
 
 ---
 
@@ -164,6 +178,7 @@ vez por modelo, en la GUI de LM Studio o con `lms load <modelo> -c <tokens>`.
 | `mac/launchd/local.iogpu.plist` | MAC | Límite de VRAM: 24576 MB |
 | `mac/launchd/local.lmstudio.plist` | MAC | Servidor al iniciar sesión (opcional) |
 | `mac/scripts/20-serve.sh` | MAC | Arranca el servidor atado al tailnet |
+| `mac/scripts/30-context.sh` | MAC | Contexto por defecto global (32k) |
 | `linux/tailscale/docker-compose.yml` | PC | Tailscale |
 | `linux/tailscale/.env` | PC | `TS_AUTHKEY` (solo primer arranque) |
 | `linux/stack/docker-compose.yml` | PC | Open WebUI (opcional) |
@@ -184,7 +199,7 @@ Los `.env` no se versionan.
 | Modelos disponibles [PC] | `curl -s http://macbook:1234/v1/models` |
 | Liberar un modelo de memoria [MAC] | `lms unload <modelo>` |
 | Reiniciar el motor [MAC] | `lms server stop && mac/scripts/20-serve.sh` |
-| Modelo cargado [MAC] | `lms ps` |
+| Modelo cargado y su contexto [MAC] | `lms ps` |
 | Memoria de la GPU [MAC] | `sysctl iogpu.wired_limit_mb` |
 
 Para subir el límite de VRAM del Mac: cambiar `24576` en
@@ -206,7 +221,8 @@ reiniciar. Prueba en caliente, sin reiniciar:
 | El servidor no arranca al encender el Mac | El tailnet tardó más de 2 min en levantar | Ver `/tmp/lmstudio-serve.log` [MAC] y relanzar `mac/scripts/20-serve.sh` |
 | `lms: command not found` [MAC] | LM Studio sin instalar, o instalado pero nunca abierto: el CLI vive dentro del bundle y `bootstrap` exige un primer arranque | Instalar, abrir la app una vez y `"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms" bootstrap` |
 | Open WebUI no resuelve `macbook` | `MACBOOK_IP` mal en `linux/stack/.env` | Corregir y `docker compose up -d` |
-| Un modelo no carga y da error de memoria | El guardarraíl bloquea la carga; el TTL es por tiempo, no libera sitio | `lms unload <otro-modelo>` [MAC] |
+| El modelo responde saludos genéricos y no ve tu pregunta | Contexto por defecto (8192) menor que el prompt de OpenCode (~10.700 tokens): `TruncateMiddle` borra casi todo | Subir `defaultContextLength` a 32768 (Fase 2.3). Confirmar en los logs: `grep TruncateMiddle ~/.lmstudio/server-logs/*/*.log` [MAC] |
+| Un modelo no carga y da error de memoria | El guardarraíl `modelLoadingGuardrails` en modo `high` bloquea la carga | `lms unload <otro-modelo>` [MAC] |
 | El Mac desaparece del tailnet | Caducó la key del nodo | *Disable key expiry* (Fase 1.3) |
 | El Mac se duerme | `pmset` sin aplicar | `mac/scripts/10-harden.sh` |
 | Generación muy lenta tras reiniciar | Límite de VRAM sin aplicar | `sysctl iogpu.wired_limit_mb` debe dar 24576 |
