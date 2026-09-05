@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# FASE 3 — Levanta LiteLLM en el PC.
-#   ./20-stack-up.sh          -> solo LiteLLM
-#   ./20-stack-up.sh --webui  -> LiteLLM + Open WebUI en :3000
+# FASE 3 (opcional) — Open WebUI en el PC, interfaz web contra el Mac.
+# El motor no necesita nada de esto: OpenCode habla directo con macbook:1234.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 cd "$REPO_ROOT/linux/stack"
 
 if [[ ! -f .env ]]; then
-  echo "Falta linux/stack/.env. Copia .env.example y rellenalo." >&2
+  echo "Falta linux/stack/.env. Copia .env.example y pon MACBOOK_IP." >&2
   exit 1
 fi
 
-# El motor tiene que estar arriba antes: LiteLLM no lo arranca.
+# El motor tiene que estar arriba antes: esto no lo arranca.
 if ! curl -fsS --max-time 5 http://macbook:1234/v1/models >/dev/null; then
   echo "!! LM Studio no responde en macbook:1234." >&2
-  echo "   Arrancalo en el Mac y comprueba 'Serve on Local Network'." >&2
+  echo "   En el Mac: lms server start --port 1234 --bind 0.0.0.0" >&2
   exit 1
 fi
 
-args=(up -d)
-[[ "${1:-}" == "--webui" ]] && args=(--profile webui "${args[@]}")
-compose "${args[@]}"
-
+compose up -d
 echo
 compose ps
 echo
-echo "Comprueba con: linux/scripts/verify.sh"
+echo "Open WebUI en http://localhost:3000"

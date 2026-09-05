@@ -5,13 +5,13 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "MacBook M1",
       "options": {
-        "baseURL": "http://localhost:4000/v1",
-        "apiKey": "{env:LITELLM_MASTER_KEY}"
+        "baseURL": "http://macbook:1234/v1",
+        "apiKey": "lm-studio"
       },
       "models": {
-        "qwen3-coder": { "name": "Qwen3 Coder 30B (local)" }
+        "qwen/qwen3-coder-30b": { "name": "Qwen3 Coder 30B" }
       }
     }
   },
-  "model": "macbook/qwen3-coder"
+  "model": "macbook/qwen/qwen3-coder-30b"
 }

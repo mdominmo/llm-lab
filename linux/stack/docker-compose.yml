@@ -1,32 +1,17 @@
-# LiteLLM (+ Open WebUI opcional) en el PC Linux.
+# Open WebUI en el PC: interfaz web contra el motor del Mac.
+# No hay proxy en medio. LM Studio ya sirve la API de OpenAI y expone todos
+# los modelos que tengas descargados; el cliente elige con el campo `model`.
 services:
-  litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    container_name: litellm
-    # network_mode: host para alcanzar el tailnet sin depender del forwarding
-    # entre el bridge de Docker y tailscale0. LiteLLM escucha en :4000 del host.
-    network_mode: host
-    volumes:
-      - ./litellm_config.yaml:/app/config.yaml
-      - ./litellm-data:/app/data
-    environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-    # /etc/hosts del host no se ve dentro del contenedor: hay que repetir la IP.
-    extra_hosts: ["macbook:${MACBOOK_IP}"]
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    restart: unless-stopped
-
-  # Arrancar con:  docker compose --profile webui up -d
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
-    profiles: ["webui"]
     ports: ["3000:8080"]
     volumes:
       - ./open-webui-data:/app/backend/data
+    # `macbook` sale de /etc/hosts del host, que el contenedor no ve.
+    extra_hosts: ["macbook:${MACBOOK_IP}"]
     environment:
-      OPENAI_API_BASE_URL: http://host.docker.internal:4000/v1
-      OPENAI_API_KEY: ${LITELLM_MASTER_KEY}
+      OPENAI_API_BASE_URL: http://macbook:1234/v1
+      OPENAI_API_KEY: lm-studio        # LM Studio no la valida, pero exige que exista
       WEBUI_AUTH: "false"
-    extra_hosts: ["host.docker.internal:host-gateway"]
     restart: unless-stopped

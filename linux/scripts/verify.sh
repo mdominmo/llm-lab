@@ -31,29 +31,15 @@ else
 fi
 
 echo
-echo "== FASE 3: LiteLLM (local) =="
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx litellm; then
-  ok "contenedor litellm arriba"
-else
-  fail "contenedor litellm caido -> linux/scripts/20-stack-up.sh"; rc=1
-fi
-if [[ -z "${LITELLM_MASTER_KEY:-}" ]]; then
-  warn "LITELLM_MASTER_KEY no esta en el entorno; no puedo autenticarme"
-else
-  lm=$(curl -fsS --max-time 5 "http://localhost:4000/v1/models" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY" 2>/dev/null)
-  if [[ -n "$lm" ]]; then
-    ok "LiteLLM en localhost:4000"
-    echo "$lm" | grep -oE '"id"[[:space:]]*:[[:space:]]*"[^"]+"' | sed 's/.*"\([^"]*\)"$/        \1/'
-    echo "  -- generacion de prueba contra el modelo local:"
-    curl -fsS --max-time 120 "http://localhost:4000/v1/chat/completions" \
-      -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+echo "== FASE 3: generacion end-to-end =="
+gen=$(curl -fsS --max-time 180 "http://$HOST:1234/v1/chat/completions" \
       -H 'Content-Type: application/json' \
-      -d '{"model":"qwen3-coder","max_tokens":16,"messages":[{"role":"user","content":"di OK"}]}' \
-      | head -c 400; echo
-  else
-    fail "sin respuesta en localhost:4000 -> linux/scripts/20-stack-up.sh"; rc=1
-  fi
+      -d '{"model":"'"${MODELO:-qwen/qwen3-coder-30b}"'","max_tokens":16,"messages":[{"role":"user","content":"di OK"}]}' 2>/dev/null)
+if [[ -n "$gen" ]]; then
+  ok "el modelo responde"
+  echo "$gen" | grep -oE '"content"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/^/        /'
+else
+  fail "sin generacion en $HOST:1234 (¿modelo descargado? 'lms ls' en el Mac)"; rc=1
 fi
 
 echo

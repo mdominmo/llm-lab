@@ -94,10 +94,7 @@ mac/scripts/10-harden.sh              # pide sudo
    El arranque automático lo cubre `mac/launchd/local.lmstudio.plist`, que ya
    pasa `--bind` — no hace falta *Run server on login*.
 
-3. En la app de LM Studio, esto sí es GUI:
-   - Contexto del modelo: **32k**
-   - KV cache: **q8**
-4. Comprobar desde el PC:
+3. Comprobar desde el PC:
 
    ```bash
    curl http://macbook:1234/v1/models
@@ -105,25 +102,26 @@ mac/scripts/10-harden.sh              # pide sudo
 
 ---
 
-## FASE 3 — [PC] LiteLLM
-
-```bash
-cp linux/stack/.env.example linux/stack/.env
-$EDITOR linux/stack/.env              # LITELLM_MASTER_KEY y MACBOOK_IP
-linux/scripts/20-stack-up.sh          # añadir --webui para Open WebUI en :3000
-```
-
-Generar la clave maestra con `openssl rand -hex 24`.
-
----
-
-## FASE 4 — [PC] Cliente
+## FASE 3 — [PC] Cliente
 
 ```bash
 linux/scripts/30-install-opencode.sh
 linux/scripts/40-link-config.sh
-echo "export LITELLM_MASTER_KEY='...'" >> ~/.bashrc   # la de linux/stack/.env
-source ~/.bashrc
+```
+
+OpenCode habla directamente con `macbook:1234`. No hay proxy ni claves: LM Studio
+ya sirve la API de OpenAI y expone todos los modelos descargados.
+
+---
+
+## FASE 4 — [PC] Open WebUI (opcional)
+
+Solo si quieres además una interfaz web en el navegador.
+
+```bash
+cp linux/stack/.env.example linux/stack/.env
+$EDITOR linux/stack/.env              # MACBOOK_IP
+linux/scripts/20-stack-up.sh          # http://localhost:3000
 ```
 
 ---
@@ -144,8 +142,14 @@ Sale 0 cuando todo está en verde. Cada fallo indica el script que lo corrige.
 opencode
 ```
 
-`macbook/qwen3-coder` es el modelo por defecto; el subagente `explorer` usa el
-mismo. Todo el tráfico se queda en casa.
+`macbook/qwen/qwen3-coder-30b` es el modelo por defecto; el subagente `explorer`
+usa el mismo. Todo el tráfico se queda en casa.
+
+Añadir un modelo son dos pasos y no se repiten: `lms get <modelo>` en el Mac, y
+una entrada más en `models` de `linux/opencode/opencode.json`. LM Studio lo carga
+solo al recibir la primera petición, con un contexto que sabe que cabe en los
+32 GB. Ese contexto solo se toca si una conversación se queda corta: se fija una
+vez por modelo, en la GUI de LM Studio o con `lms load <modelo> -c <tokens>`.
 
 ---
 
@@ -157,9 +161,8 @@ mismo. Todo el tráfico se queda en casa.
 | `mac/launchd/local.lmstudio.plist` | MAC | Servidor al iniciar sesión (opcional) |
 | `linux/tailscale/docker-compose.yml` | PC | Tailscale |
 | `linux/tailscale/.env` | PC | `TS_AUTHKEY` (solo primer arranque) |
-| `linux/stack/docker-compose.yml` | PC | LiteLLM y Open WebUI (perfil `webui`) |
-| `linux/stack/litellm_config.yaml` | PC | Modelo `qwen3-coder` |
-| `linux/stack/.env` | PC | `LITELLM_MASTER_KEY`, `MACBOOK_IP` |
+| `linux/stack/docker-compose.yml` | PC | Open WebUI (opcional) |
+| `linux/stack/.env` | PC | `MACBOOK_IP` |
 | `linux/opencode/opencode.json` | PC | Providers de OpenCode |
 | `linux/opencode/agent/explorer.md` | PC | Subagente de exploración |
 
@@ -173,13 +176,11 @@ Los `.env` no se versionan.
 |---|---|
 | Estado del tailnet [PC] | `docker exec tailscale tailscale status` |
 | Estado del stack [PC] | `cd linux/stack && docker compose ps` |
-| Logs de LiteLLM [PC] | `cd linux/stack && docker compose logs -f litellm` |
-| Reiniciar LiteLLM [PC] | `cd linux/stack && docker compose restart litellm` |
+| Modelos disponibles [PC] | `curl -s http://macbook:1234/v1/models` |
+| Liberar un modelo de memoria [MAC] | `lms unload <modelo>` |
 | Reiniciar el motor [MAC] | `lms server stop && lms server start` |
 | Modelo cargado [MAC] | `lms ps` |
 | Memoria de la GPU [MAC] | `sysctl iogpu.wired_limit_mb` |
-
-Tras cambiar `linux/stack/litellm_config.yaml` hay que reiniciar el contenedor.
 
 Para subir el límite de VRAM del Mac: cambiar `24576` en
 `mac/launchd/local.iogpu.plist`, reejecutar `mac/scripts/10-harden.sh` y
@@ -198,9 +199,8 @@ reiniciar. Prueba en caliente, sin reiniciar:
 | Tras reiniciar el PC, el contenedor reinicia en bucle con `invalid key` y el nodo queda deslogueado | `containerboot` reintentó autenticar con la `TS_AUTHKEY`, que es de un solo uso | `TS_AUTH_ONCE: "true"` en el compose y comentar `TS_AUTHKEY` en `.env`. Para recuperar la sesión, visitar el enlace que sale en `docker logs tailscale` |
 | `:1234` no responde desde el PC | El servidor escucha solo en `127.0.0.1` | `lms server start --port 1234 --bind 0.0.0.0` [MAC]; comprobar con `lsof -nP -iTCP:1234 -sTCP:LISTEN` |
 | `lms: command not found` [MAC] | LM Studio sin instalar, o instalado pero nunca abierto: el CLI vive dentro del bundle y `bootstrap` exige un primer arranque | Instalar, abrir la app una vez y `"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms" bootstrap` |
-| `:4000` responde 401 | `LITELLM_MASTER_KEY` distinta a la de `linux/stack/.env` | Igualarlas |
-| LiteLLM no resuelve `macbook` | `MACBOOK_IP` mal en `linux/stack/.env` | Corregir y `docker compose up -d` |
-| LiteLLM no alcanza el modelo | Servidor de LM Studio parado | `lms server start` [MAC] |
+| Open WebUI no resuelve `macbook` | `MACBOOK_IP` mal en `linux/stack/.env` | Corregir y `docker compose up -d` |
+| Un modelo no carga y da error de memoria | El guardarraíl bloquea la carga; el TTL es por tiempo, no libera sitio | `lms unload <otro-modelo>` [MAC] |
 | El Mac desaparece del tailnet | Caducó la key del nodo | *Disable key expiry* (Fase 1.3) |
 | El Mac se duerme | `pmset` sin aplicar | `mac/scripts/10-harden.sh` |
 | Generación muy lenta tras reiniciar | Límite de VRAM sin aplicar | `sysctl iogpu.wired_limit_mb` debe dar 24576 |

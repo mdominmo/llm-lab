@@ -20,14 +20,4 @@ link() {
 link "$REPO_ROOT/linux/opencode/opencode.json" "$DST/opencode.json"
 link "$REPO_ROOT/linux/opencode/agent/explorer.md" "$DST/agent/explorer.md"
 
-echo
-if [[ -z "${LITELLM_MASTER_KEY:-}" ]]; then
-  cat <<'MSG'
-Falta LITELLM_MASTER_KEY en el entorno: opencode.json la lee con {env:...}.
-Anade a ~/.bashrc (o al gestor de secretos que uses):
-
-  export LITELLM_MASTER_KEY='...la misma que en linux/stack/.env...'
-MSG
-else
-  echo "LITELLM_MASTER_KEY presente en el entorno."
-fi
+echo "OpenCode apunta directo a macbook:1234. No hace falta ninguna clave."
