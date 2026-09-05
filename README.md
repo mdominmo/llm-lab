@@ -160,10 +160,20 @@ opencode
 `macbook/qwen/qwen3-coder-30b` es el modelo por defecto; el subagente `explorer`
 usa el mismo. Todo el tráfico se queda en casa.
 
-Añadir un modelo son dos pasos: `lms get <modelo>` en el Mac, y una entrada más
-en `models` de `linux/opencode/opencode.json`. LM Studio lo carga solo al recibir
-la primera petición, con los 32k de `defaultContextLength` — el contexto **no**
-hay que fijarlo modelo a modelo.
+Añadir un modelo son dos comandos:
+
+```bash
+ssh macbook '~/.lmstudio/bin/lms get <modelo>'
+linux/scripts/50-sync-models.sh       # [PC] refresca la lista de OpenCode
+```
+
+El segundo hace falta porque OpenCode **no le pregunta al servidor** qué modelos
+tiene: su lista sale de un catálogo estático más lo que declare
+`linux/opencode/opencode.json`. El script lo regenera solo, leyendo del Mac el
+tipo, las capacidades y el contexto de cada modelo descargado.
+
+LM Studio lo carga solo al recibir la primera petición, con los 32k de
+`defaultContextLength` — el contexto **no** hay que fijarlo modelo a modelo.
 
 El modelo cargado se descarga solo a la hora sin uso (`jitModelTTL`), y al cargar
 otro se libera el anterior (`unloadPreviousJITModelOnLoad`). No hay que gestionar
@@ -183,7 +193,7 @@ memoria a mano.
 | `linux/tailscale/.env` | PC | `TS_AUTHKEY` (solo primer arranque) |
 | `linux/stack/docker-compose.yml` | PC | Open WebUI (opcional) |
 | `linux/stack/.env` | PC | `MACBOOK_IP` |
-| `linux/opencode/opencode.json` | PC | Providers de OpenCode |
+| `linux/opencode/opencode.json` | PC | Providers de OpenCode (lo genera `50-sync-models.sh`) |
 | `linux/opencode/agent/explorer.md` | PC | Subagente de exploración |
 
 Los `.env` no se versionan.
@@ -196,7 +206,9 @@ Los `.env` no se versionan.
 |---|---|
 | Estado del tailnet [PC] | `docker exec tailscale tailscale status` |
 | Estado del stack [PC] | `cd linux/stack && docker compose ps` |
-| Modelos disponibles [PC] | `curl -s http://macbook:1234/v1/models` |
+| Modelos descargados y su estado [PC] | `curl -s http://macbook:1234/api/v0/models` |
+| Modelos que ve OpenCode [PC] | `opencode models \| grep macbook` |
+| Refrescar la lista tras un `lms get` [PC] | `linux/scripts/50-sync-models.sh` |
 | Liberar un modelo de memoria [MAC] | `lms unload <modelo>` |
 | Reiniciar el motor [MAC] | `lms server stop && mac/scripts/20-serve.sh` |
 | Modelo cargado y su contexto [MAC] | `lms ps` |
@@ -222,6 +234,7 @@ reiniciar. Prueba en caliente, sin reiniciar:
 | `lms: command not found` [MAC] | LM Studio sin instalar, o instalado pero nunca abierto: el CLI vive dentro del bundle y `bootstrap` exige un primer arranque | Instalar, abrir la app una vez y `"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms" bootstrap` |
 | Open WebUI no resuelve `macbook` | `MACBOOK_IP` mal en `linux/stack/.env` | Corregir y `docker compose up -d` |
 | El modelo responde saludos genéricos y no ve tu pregunta | Contexto por defecto (8192) menor que el prompt de OpenCode (~10.700 tokens): `TruncateMiddle` borra casi todo | Subir `defaultContextLength` a 32768 (Fase 2.3). Confirmar en los logs: `grep TruncateMiddle ~/.lmstudio/server-logs/*/*.log` [MAC] |
+| Un modelo recién descargado no sale en OpenCode | OpenCode nunca consulta `/v1/models`: solo conoce lo declarado en `opencode.json` | `linux/scripts/50-sync-models.sh` [PC] |
 | Un modelo no carga y da error de memoria | El guardarraíl `modelLoadingGuardrails` en modo `high` bloquea la carga | `lms unload <otro-modelo>` [MAC] |
 | El Mac desaparece del tailnet | Caducó la key del nodo | *Disable key expiry* (Fase 1.3) |
 | El Mac se duerme | `pmset` sin aplicar | `mac/scripts/10-harden.sh` |
