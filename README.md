@@ -11,6 +11,11 @@ Notación: **[MAC]** se ejecuta en el MacBook, **[PC]** en el PC Linux.
 
 - Cuenta de Tailscale con los dos equipos en el mismo tailnet.
 - Este repo clonado en las dos máquinas.
+- `docker compose` v2 en el PC. El `docker-compose` v1 de Python no vale con
+  Docker Engine 25+: falla con `KeyError: 'ContainerConfig'`. Instalarlo con
+  `mkdir -p ~/.docker/cli-plugins && curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose && chmod +x ~/.docker/cli-plugins/docker-compose`
+- Ningún otro `tailscaled` corriendo en el PC. Dos demonios sobre el mismo
+  namespace de red se pisan las rutas y las `ip rules` (ver Problemas frecuentes).
 
 ---
 
@@ -74,12 +79,20 @@ mac/scripts/10-harden.sh              # pide sudo
    lms get qwen/qwen3-coder-30b        # variante MLX 4-bit, ~17GB
    ```
 
-2. En la app de LM Studio:
-   - **Developer → Serve on Local Network: ON**
-   - **Developer → Run server on login: ON**
+2. Escuchar en la red, sin GUI (en 0.4.x el toggle *Serve on Local Network* está
+   escondido tras el modo Developer; `--bind` hace lo mismo):
+
+   ```bash
+   lms server start --port 1234 --bind 0.0.0.0
+   ```
+
+   El arranque automático lo cubre `mac/launchd/local.lmstudio.plist`, que ya
+   pasa `--bind` — no hace falta *Run server on login*.
+
+3. En la app de LM Studio, esto sí es GUI:
    - Contexto del modelo: **32k**
    - KV cache: **q8**
-3. Arrancar el servidor y comprobar desde el PC:
+4. Comprobar desde el PC:
 
    ```bash
    curl http://macbook:1234/v1/models
@@ -175,7 +188,10 @@ reiniciar. Prueba en caliente, sin reiniciar:
 | Síntoma | Causa | Solución |
 |---|---|---|
 | `macbook` no resuelve [PC] | Falta la entrada en `/etc/hosts` | `linux/scripts/10-hosts.sh 100.x.y.z` |
-| `:1234` no responde desde el PC | *Serve on Local Network* apagado | Activarlo en LM Studio → Developer |
+| `ping macbook` falla pero `docker exec tailscale tailscale ping macbook` da pong | El nodo va en *userspace-networking*: el túnel existe pero el kernel del host no lo ve. `ip -br addr show tailscale0` sale vacío o sin IPv4 | Comprobar `TS_USERSPACE: "false"` en `linux/tailscale/docker-compose.yml` y recrear el contenedor |
+| `tailscale0` pierde la IP cada minuto; logs con `ip rule deleted` | Hay un segundo `tailscaled` en el host (otro proyecto en `network_mode: host`) | `docker ps \| grep tailscale` y parar el que sobre |
+| `:1234` no responde desde el PC | El servidor escucha solo en `127.0.0.1` | `lms server start --port 1234 --bind 0.0.0.0` [MAC]; comprobar con `lsof -nP -iTCP:1234 -sTCP:LISTEN` |
+| `lms: command not found` [MAC] | LM Studio sin instalar, o instalado pero nunca abierto: el CLI vive dentro del bundle y `bootstrap` exige un primer arranque | Instalar, abrir la app una vez y `"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms" bootstrap` |
 | `:4000` responde 401 | `LITELLM_MASTER_KEY` distinta a la de `linux/stack/.env` | Igualarlas |
 | LiteLLM no resuelve `macbook` | `MACBOOK_IP` mal en `linux/stack/.env` | Corregir y `docker compose up -d` |
 | LiteLLM no alcanza el modelo | Servidor de LM Studio parado | `lms server start` [MAC] |

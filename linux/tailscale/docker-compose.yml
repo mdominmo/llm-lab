@@ -14,6 +14,9 @@ services:
     environment:
       TS_STATE_DIR: /var/lib/tailscale
       TS_AUTHKEY: ${TS_AUTHKEY:-}              # solo primer arranque
+      # La imagen usa userspace-networking por defecto: sin interfaz de kernel
+      # no hay `ping`/`ssh macbook`, solo un proxy SOCKS5. Hace falta el tun real.
+      TS_USERSPACE: "false"
       # tailscaled escribiria el /etc/resolv.conf DEL CONTENEDOR, no el del host
       # -> MagicDNS no llegaria. Se resuelve con /etc/hosts (ver 10-hosts.sh).
       TS_EXTRA_ARGS: --accept-dns=false

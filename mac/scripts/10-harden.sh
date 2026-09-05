@@ -15,7 +15,16 @@ fi
 
 echo "== Energia: sin suspension, arranque tras corte, wake-on-LAN =="
 sudo pmset -c sleep 0 disablesleep 1 autorestart 1 womp 1
-pmset -g custom | sed -n '1,20p'
+# `-c` solo toca el perfil de CORRIENTE. Desenchufado el Mac usa el de bateria,
+# que trae `sleep 1`: se duerme al minuto y desaparece del tailnet. El servidor
+# se quiere enchufado, pero mientras no lo este, que al menos no se suspenda.
+sudo pmset -b sleep 0 disablesleep 1
+pmset -g custom | sed -n '1,30p'
+
+if ! pmset -g ps | grep -q 'AC Power'; then
+  echo "!! El Mac esta con bateria. Como servidor tiene que ir enchufado:" >&2
+  echo "   sin AC no hay wake-on-LAN (womp) ni arranque tras corte." >&2
+fi
 
 echo
 echo "== LaunchDaemon: limite de VRAM en cada arranque =="

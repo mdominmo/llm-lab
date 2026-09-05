@@ -15,6 +15,9 @@
     <string>/Users/USUARIO/.lmstudio/bin/lms</string>
     <string>server</string><string>start</string>
     <string>--port</string><string>1234</string>
+    <!-- Sin esto escucha solo en 127.0.0.1 y el PC no lo alcanza por el
+         tailnet. Equivale al toggle "Serve on Local Network" de la GUI. -->
+    <string>--bind</string><string>0.0.0.0</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
