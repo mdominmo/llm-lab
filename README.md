@@ -51,6 +51,11 @@ $EDITOR linux/tailscale/.env          # pegar TS_AUTHKEY
 linux/scripts/00-tailscale-up.sh
 ```
 
+Una vez dentro, **comentar `TS_AUTHKEY` en el `.env`**: es de un solo uso y la
+identidad del nodo ya está en `tailscale-state`. El `TS_AUTH_ONCE: "true"` del
+compose evita que un reintento la use al reiniciar, pero dejarla puesta no
+aporta nada.
+
 ### 1.2 [PC] Registrar el Mac y abrir SSH
 
 ```bash
@@ -190,6 +195,7 @@ reiniciar. Prueba en caliente, sin reiniciar:
 | `macbook` no resuelve [PC] | Falta la entrada en `/etc/hosts` | `linux/scripts/10-hosts.sh 100.x.y.z` |
 | `ping macbook` falla pero `docker exec tailscale tailscale ping macbook` da pong | El nodo va en *userspace-networking*: el túnel existe pero el kernel del host no lo ve. `ip -br addr show tailscale0` sale vacío o sin IPv4 | Comprobar `TS_USERSPACE: "false"` en `linux/tailscale/docker-compose.yml` y recrear el contenedor |
 | `tailscale0` pierde la IP cada minuto; logs con `ip rule deleted` | Hay un segundo `tailscaled` en el host (otro proyecto en `network_mode: host`) | `docker ps \| grep tailscale` y parar el que sobre |
+| Tras reiniciar el PC, el contenedor reinicia en bucle con `invalid key` y el nodo queda deslogueado | `containerboot` reintentó autenticar con la `TS_AUTHKEY`, que es de un solo uso | `TS_AUTH_ONCE: "true"` en el compose y comentar `TS_AUTHKEY` en `.env`. Para recuperar la sesión, visitar el enlace que sale en `docker logs tailscale` |
 | `:1234` no responde desde el PC | El servidor escucha solo en `127.0.0.1` | `lms server start --port 1234 --bind 0.0.0.0` [MAC]; comprobar con `lsof -nP -iTCP:1234 -sTCP:LISTEN` |
 | `lms: command not found` [MAC] | LM Studio sin instalar, o instalado pero nunca abierto: el CLI vive dentro del bundle y `bootstrap` exige un primer arranque | Instalar, abrir la app una vez y `"/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms" bootstrap` |
 | `:4000` responde 401 | `LITELLM_MASTER_KEY` distinta a la de `linux/stack/.env` | Igualarlas |

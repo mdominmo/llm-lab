@@ -14,6 +14,10 @@ services:
     environment:
       TS_STATE_DIR: /var/lib/tailscale
       TS_AUTHKEY: ${TS_AUTHKEY:-}              # solo primer arranque
+      # Sin esto, containerboot ejecuta `tailscale up --authkey=...` en CADA
+      # arranque. La key es de un solo uso: al reiniciar el PC falla con
+      # "invalid key", el nodo se queda deslogueado y hay que autenticar a mano.
+      TS_AUTH_ONCE: "true"
       # La imagen usa userspace-networking por defecto: sin interfaz de kernel
       # no hay `ping`/`ssh macbook`, solo un proxy SOCKS5. Hace falta el tun real.
       TS_USERSPACE: "false"
