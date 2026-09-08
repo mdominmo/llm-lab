@@ -321,6 +321,12 @@ pero es el primer sitio donde mirar si el servidor arranca y no ve ningún model
 para `--shared-secret`. Si no lo soporta, se arranca sin él: el tailnet sigue siendo la
 barrera real, exactamente igual que con LM Studio hoy.
 
+**El secreto viaja en la línea de comandos.** `--shared-secret` es un argumento, así que
+cualquier `ps` en el Mac lo muestra en claro. `gRPCServerCLI` no admite leerlo de una
+variable de entorno ni de un fichero. En un Mac de un solo usuario el impacto es
+pequeño —quien pueda hacer `ps` ya tiene tu sesión— pero conviene saberlo y no tratar
+ese secreto como si fuera fuerte. El fichero `~/.drawthings/secret` sí está en `600`.
+
 **8 GB son 8 GB.** Riesgo de la segunda etapa, no de la primera. Con SDXL a resoluciones
 altas o varios ControlNets, la 4070 se queda sin VRAM. No es un fallo del montaje: es la
 señal de cuándo mandar el trabajo al Mac.
