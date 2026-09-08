@@ -1,0 +1,19 @@
+# ComfyUI en el PC, cliente del servidor de Draw Things del Mac.
+# Primera etapa: sin GPU (§4.5 de PLAN-IMAGEN.md).
+services:
+  comfyui:
+    build:
+      context: .
+    container_name: comfyui
+    ports:
+      - "127.0.0.1:8188:8188"      # solo local: no se expone al tailnet
+    # El contenedor esta en una red bridge, no comparte el /etc/hosts del host,
+    # asi que `macbook` no resuelve dentro. La ruta al tailnet si funciona
+    # (via tailscale0 del host); lo que falta es solo el nombre.
+    extra_hosts:
+      - "macbook:${MACBOOK_IP}"
+    volumes:
+      - ./data/output:/opt/comfyui/output      # imagenes generadas
+      - ./data/input:/opt/comfyui/input        # imagenes de entrada (img2img)
+      - ./data/workflows:/opt/comfyui/user     # flujos guardados y ajustes
+    restart: unless-stopped

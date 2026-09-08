@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servidor gRPC de Draw Things al iniciar sesion.
+  Es un AGENT, no un Daemon: Metal exige sesion grafica de usuario.
+  Llama a 50-drawthings-serve.sh, que espera al tailnet y ata el servidor
+  a esa IP (por defecto gRPCServerCLI escucha en 0.0.0.0, abierto al wifi).
+
+  Destino: ~/Library/LaunchAgents/local.drawthings.plist
+  Sustituir USUARIO por la salida de `whoami`.
+
+  Independiente de local.lmstudio.plist: si uno falla, el otro sigue.
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>local.drawthings</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USUARIO/repositories/llm-lab/mac/scripts/50-drawthings-serve.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+  </dict>
+  <key>StandardOutPath</key><string>/tmp/drawthings-serve.log</string>
+  <key>StandardErrorPath</key><string>/tmp/drawthings-serve.log</string>
+</dict></plist>
