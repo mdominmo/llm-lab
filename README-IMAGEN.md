@@ -131,6 +131,17 @@ Sale 0 cuando todo está en verde. Cada fallo indica el script que lo corrige.
 
 ## Uso diario
 
+ComfyUI **no arranca solo** al encender el PC, a proposito: es una interfaz que se abre
+cuando quieres generar algo, no un servicio de fondo. Se levanta y se para a mano.
+
+```bash
+cd linux/comfyui && docker compose up -d     # levantar
+cd linux/comfyui && docker compose down      # parar al terminar
+```
+
+Solo levanta el contenedor; no reconstruye nada. El motor del Mac sigue su propio
+ciclo y no depende de esto.
+
 1. Abrir `http://localhost:8188`.
 2. En el nodo `DrawThingsSampler`: **server `macbook`**, **port `7859`**, y
    **`use_tls` desactivado** (ver más abajo el porqué).

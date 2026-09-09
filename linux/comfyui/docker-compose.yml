@@ -16,4 +16,6 @@ services:
       - ./data/output:/opt/comfyui/output      # imagenes generadas
       - ./data/input:/opt/comfyui/input        # imagenes de entrada (img2img)
       - ./data/workflows:/opt/comfyui/user     # flujos guardados y ajustes
-    restart: unless-stopped
+    # No arranca al encender el PC. ComfyUI es una interfaz que se abre cuando
+    # quieres generar algo, no un servicio de fondo.
+    restart: "no"
