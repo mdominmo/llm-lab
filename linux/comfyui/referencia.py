@@ -79,6 +79,29 @@ def buscar(lista, patron, que):
              "\n".join(f"  {x.get('name')}  [{x.get('file')}]" for x in lista))
 
 
+def ajustes_del_modelo(modelo):
+    """Valores que dependen de la arquitectura, sacados del propio catalogo.
+
+    Sin esto no vale con cambiar de modelo: Flux es un modelo de flow matching
+    y con un sampler de difusion clasica (el primero de la lista) devuelve
+    manchas de color sin estructura, sin dar ningun error. Su configuracion
+    oficial pide el sampler 10, "Euler A Trailing", y guiado por embedding en
+    vez de CFG.
+
+    El catalogo publica `guidance_embed` y `default_scale`, asi que se decide
+    con eso y no con el nombre del modelo: cualquier modelo futuro del mismo
+    tipo queda cubierto.
+    """
+    lado = int(modelo.get("default_scale", 8)) * 64
+    if modelo.get("guidance_embed"):
+        return {"sampler_name": "Euler A Trailing", "cfg": 1.0,
+                "guidance_embed": 4.5, "speed_up": True,
+                "res_dpt_shift": True, "shift": 1.0,
+                "steps": 28, "lado": lado}
+    return {"sampler_name": "DPM++ 2M Karras", "cfg": 1.0,
+            "steps": 4, "lado": lado}
+
+
 def main():
     p = argparse.ArgumentParser(description="Genera a partir de imagenes de referencia.")
     p.add_argument("prompt", nargs="?", default="")
@@ -92,10 +115,12 @@ def main():
     p.add_argument("--peso", type=float, default=0.9,
                    help="fuerza de la referencia, 0-1 (por defecto 0.9)")
     p.add_argument("--peso-lora", type=float, default=0.8)
-    p.add_argument("--pasos", type=int, default=20)
-    p.add_argument("--cfg", type=float, default=3.5)
-    p.add_argument("--ancho", type=int, default=1024)
-    p.add_argument("--alto", type=int, default=1024)
+    # Sin valor por defecto: los pone el modelo (ajustes_del_modelo). Solo si
+    # los indicas tu mandan sobre eso.
+    p.add_argument("--pasos", type=int)
+    p.add_argument("--cfg", type=float)
+    p.add_argument("--ancho", type=int)
+    p.add_argument("--alto", type=int)
     p.add_argument("--semilla", type=int, default=-1)
     p.add_argument("--servidor", default="macbook")
     p.add_argument("--puerto", default="7859")
@@ -135,17 +160,34 @@ def main():
         sys.exit("Catalogo vacio: falta 'Acceso a disco completo' en el Mac.")
     modelo = buscar(modelos, a.modelo, "modelo")
 
+    # Un adaptador solo sirve para la arquitectura con la que se entreno. Si se
+    # emparejan mal, el servidor NO falla: genera ignorando las referencias en
+    # silencio, y desde fuera parece que el flujo funciona. Por eso se filtra
+    # por `version` antes de elegir, en vez de coger el primero que haya.
+    arq = modelo.get("version")
+    compatibles = [x for x in adaptadores if x.get("version") == arq]
+
     adaptador = None
-    if adaptadores:
-        if a.adaptador:
-            adaptador = buscar(adaptadores, a.adaptador, "adaptador")
-        else:
-            adaptador = adaptadores[0]
+    if a.adaptador:
+        adaptador = buscar(adaptadores, a.adaptador, "adaptador")
+        if adaptador.get("version") != arq:
+            sys.exit(f"'{adaptador.get('name')}' es de arquitectura "
+                     f"'{adaptador.get('version')}' y el modelo "
+                     f"'{modelo.get('name')}' es '{arq}'. No son compatibles.")
+    elif compatibles:
+        adaptador = compatibles[0]
+
     if adaptador is None:
-        print("AVISO: no hay ningun adaptador descargado en el Mac.\n"
-              "       Se genera solo desde el prompt: las referencias NO se usaran.\n"
-              "       Bajalo con mac/scripts/70-get-model.sh, y que sea el de la\n"
-              f"       arquitectura de '{modelo.get('name')}'.", file=sys.stderr)
+        otras = {x.get("version") for x in adaptadores}
+        print(f"AVISO: no hay adaptador para la arquitectura '{arq}' de "
+              f"'{modelo.get('name')}'.\n"
+              "       Se genera solo desde el prompt: las referencias NO se usaran.",
+              file=sys.stderr)
+        if otras:
+            print(f"       Hay adaptadores, pero de otras arquitecturas: "
+                  f"{', '.join(sorted(otras))}.\n"
+                  f"       Elige un modelo de esa arquitectura con --modelo.",
+                  file=sys.stderr)
 
     grafo, n = {}, 0
 
@@ -184,14 +226,18 @@ def main():
         id_lora = nodo("DrawThingsLoRA",
                        {"lora_name": {"value": el}, "lora_weight": a.peso_lora})
 
-    entradas = {
+    prop = ajustes_del_modelo(modelo)
+    entradas = {k: v for k, v in prop.items() if k != "lado"}
+    entradas.update({
         "server": a.servidor, "port": a.puerto, "use_tls": False,
         "model": {"value": modelo},
         "positive": [id_pos, 0], "negative": [id_neg, 0],
-        "width": a.ancho, "height": a.alto, "steps": a.pasos,
-        "cfg": a.cfg, "batch_size": 1,
+        "width": a.ancho or prop["lado"], "height": a.alto or prop["lado"],
+        "steps": a.pasos or prop["steps"],
+        "cfg": a.cfg if a.cfg is not None else prop["cfg"],
+        "batch_size": 1,
         "seed": a.semilla if a.semilla >= 0 else int(time.time()) % 4294967295,
-    }
+    })
     if cadena:
         entradas["control_net"] = [cadena, 0]
     if id_lora:
@@ -204,7 +250,9 @@ def main():
         print(f"adaptador: {adaptador.get('name')}  x{len(a.ref)} ref(s), peso {a.peso}")
     if id_lora:
         print(f"lora: peso {a.peso_lora}")
-    print(f"{a.ancho}x{a.alto}, {a.pasos} pasos, semilla {entradas['seed']}")
+    print(f"{entradas['width']}x{entradas['height']}, {entradas['steps']} pasos, "
+          f"{entradas['sampler_name']}, cfg {entradas['cfg']}, "
+          f"semilla {entradas['seed']}")
 
     try:
         pid = pedir("/prompt", json.dumps({"prompt": grafo}).encode(), 90)["prompt_id"]

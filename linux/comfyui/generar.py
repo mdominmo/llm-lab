@@ -44,15 +44,40 @@ def por_defecto(info, clase):
     return salida
 
 
+def ajustes_del_modelo(modelo):
+    """Valores que dependen de la arquitectura, sacados del propio catalogo.
+
+    Sin esto no vale con cambiar de modelo: Flux es un modelo de flow matching
+    y con un sampler de difusion clasica (el primero de la lista) devuelve
+    manchas de color sin estructura, sin dar ningun error. Su configuracion
+    oficial pide el sampler 10, "Euler A Trailing", y guiado por embedding en
+    vez de CFG.
+
+    El catalogo publica `guidance_embed` y `default_scale`, asi que se decide
+    con eso y no con el nombre del modelo: cualquier modelo futuro del mismo
+    tipo queda cubierto.
+    """
+    lado = int(modelo.get("default_scale", 8)) * 64
+    if modelo.get("guidance_embed"):
+        return {"sampler_name": "Euler A Trailing", "cfg": 1.0,
+                "guidance_embed": 4.5, "speed_up": True,
+                "res_dpt_shift": True, "shift": 1.0,
+                "steps": 28, "lado": lado}
+    return {"sampler_name": "DPM++ 2M Karras", "cfg": 1.0,
+            "steps": 4, "lado": lado}
+
+
 def main():
     p = argparse.ArgumentParser(description="Genera una imagen en el Mac.")
     p.add_argument("prompt", nargs="?", default="")
     p.add_argument("--negativo", default="")
     p.add_argument("--modelo", help="parte del nombre; por defecto, el primero")
-    p.add_argument("--pasos", type=int, default=4)
-    p.add_argument("--cfg", type=float, default=1.0)
-    p.add_argument("--ancho", type=int, default=512)
-    p.add_argument("--alto", type=int, default=512)
+    # Sin valor por defecto: lo pone el modelo (ajustes_del_modelo). Solo si
+    # los indicas tu mandan sobre eso.
+    p.add_argument("--pasos", type=int)
+    p.add_argument("--cfg", type=float)
+    p.add_argument("--ancho", type=int)
+    p.add_argument("--alto", type=int)
     p.add_argument("--semilla", type=int, default=42)
     p.add_argument("--servidor", default="macbook")
     p.add_argument("--puerto", default="7859")
@@ -93,13 +118,17 @@ def main():
             sys.exit(f"Ningun modelo coincide con '{a.modelo}'. Usa --listar.")
         modelo = coincide[0]
 
+    prop = ajustes_del_modelo(modelo)
     sampler = por_defecto(info, "DrawThingsSampler")
+    sampler.update({k: v for k, v in prop.items() if k != "lado"})
     sampler.update({
         "server": a.servidor, "port": a.puerto, "use_tls": False,
         "model": {"value": modelo},
         "positive": ["1", 0], "negative": ["2", 0],
-        "width": a.ancho, "height": a.alto, "steps": a.pasos,
-        "cfg": a.cfg, "seed": a.semilla, "batch_size": 1,
+        "width": a.ancho or prop["lado"], "height": a.alto or prop["lado"],
+        "steps": a.pasos or prop["steps"],
+        "cfg": a.cfg if a.cfg is not None else prop["cfg"],
+        "seed": a.semilla, "batch_size": 1,
     })
 
     grafo = {
@@ -112,7 +141,9 @@ def main():
               "inputs": {"filename_prefix": "cli", "images": ["3", 0]}},
     }
 
-    print(f"modelo: {modelo.get('name')}  |  {a.ancho}x{a.alto}, {a.pasos} pasos")
+    print(f"modelo: {modelo.get('name')}  |  "
+          f"{sampler['width']}x{sampler['height']}, {sampler['steps']} pasos, "
+          f"{sampler['sampler_name']}, cfg {sampler['cfg']}")
     try:
         pid = pedir("/prompt", json.dumps({"prompt": grafo}).encode(), 60)["prompt_id"]
     except urllib.error.HTTPError as e:
