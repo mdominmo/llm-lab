@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Genera imagenes de una persona a partir de fotos suyas.
+
+    linux/comfyui/persona.py "de senderismo en la montana, atardecer" \
+        --foto ~/fotos/cara1.jpg --foto ~/fotos/cara2.jpg
+
+Sube las fotos a ComfyUI, las encadena como referencias de identidad y manda
+todo al servidor de Draw Things del Mac. Solo libreria estandar.
+
+QUE HACE Y QUE NO
+  El adaptador de identidad (PuLID) ancla la CARA. El cuerpo sale de lo que
+  escribas en el prompt: la complexion no se deduce de las fotos. Para que el
+  cuerpo tambien se parezca hace falta un LoRA entrenado de esa persona, que
+  se pasa aparte con --lora y se apila con esto.
+
+ABIERTO A CAMBIAR DE MODELO
+  Nada esta cableado a Flux ni a PuLID. El modelo y el adaptador se buscan por
+  nombre en el catalogo vivo del Mac (--modelo / --adaptador). Lo que NO es
+  portable son los pesos: un adaptador de identidad sirve solo para la
+  arquitectura con la que se entreno, asi que cambiar de modelo obliga a bajar
+  su adaptador equivalente. El script lo detecta y lo dice, no falla a ciegas.
+"""
+import argparse, json, mimetypes, os, sys, time, urllib.error, urllib.parse, urllib.request
+import uuid
+
+BASE = "http://127.0.0.1:8188"
+
+
+def pedir(ruta, datos=None, timeout=90, cabeceras=None):
+    req = urllib.request.Request(BASE + ruta, data=datos, headers=cabeceras or {})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def subir(ruta_local):
+    """Sube una imagen a la carpeta input de ComfyUI y devuelve su nombre."""
+    if not os.path.isfile(ruta_local):
+        sys.exit(f"No existe la foto: {ruta_local}")
+    nombre = os.path.basename(ruta_local)
+    tipo = mimetypes.guess_type(nombre)[0] or "application/octet-stream"
+    limite = "----" + uuid.uuid4().hex
+    cuerpo = b"".join([
+        f'--{limite}\r\nContent-Disposition: form-data; name="image"; '
+        f'filename="{nombre}"\r\nContent-Type: {tipo}\r\n\r\n'.encode(),
+        open(ruta_local, "rb").read(),
+        f"\r\n--{limite}\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\ntrue\r\n".encode(),
+        f"--{limite}--\r\n".encode(),
+    ])
+    r = pedir("/upload/image", cuerpo, 120,
+              {"Content-Type": f"multipart/form-data; boundary={limite}"})
+    return r["name"]
+
+
+def por_defecto(info, clase):
+    """Cada entrada con el valor por defecto que declara el nodo.
+
+    Los nodos de Draw Things exigen presentes TODAS sus entradas, no solo las
+    que interesan; sin esto ComfyUI rechaza el grafo.
+    """
+    salida, spec = {}, info[clase]["input"]
+    for seccion in ("required", "optional"):
+        for k, v in spec.get(seccion, {}).items():
+            tipo, meta = v[0], (v[1] if len(v) > 1 else {})
+            if isinstance(tipo, list):
+                salida[k] = tipo[0] if tipo else ""
+            elif "default" in meta:
+                salida[k] = meta["default"]
+            elif tipo == "STRING":
+                salida[k] = ""
+            elif tipo in ("INT", "FLOAT"):
+                salida[k] = 0
+            elif tipo == "BOOLEAN":
+                salida[k] = False
+    return salida
+
+
+def buscar(lista, patron, que):
+    if not patron:
+        return lista[0] if lista else None
+    for x in lista:
+        if patron.lower() in (x.get("name", "") + " " + x.get("file", "")).lower():
+            return x
+    sys.exit(f"Ningun {que} coincide con '{patron}'.\nDisponibles:\n" +
+             "\n".join(f"  {x.get('name')}  [{x.get('file')}]" for x in lista))
+
+
+def main():
+    p = argparse.ArgumentParser(description="Genera a una persona a partir de sus fotos.")
+    p.add_argument("prompt", nargs="?", default="")
+    p.add_argument("--foto", action="append", default=[],
+                   help="foto de referencia; repetir para varias (hasta 4)")
+    p.add_argument("--negativo", default="deformed, blurry, extra limbs")
+    p.add_argument("--modelo", help="parte del nombre; por defecto el primero")
+    p.add_argument("--adaptador", default="pulid",
+                   help="adaptador de identidad en el catalogo (por defecto: pulid)")
+    p.add_argument("--lora", help="LoRA de la persona, para el parecido de cuerpo")
+    p.add_argument("--peso", type=float, default=0.9,
+                   help="fuerza de la identidad, 0-1 (por defecto 0.9)")
+    p.add_argument("--peso-lora", type=float, default=0.8)
+    p.add_argument("--pasos", type=int, default=20)
+    p.add_argument("--cfg", type=float, default=3.5)
+    p.add_argument("--ancho", type=int, default=1024)
+    p.add_argument("--alto", type=int, default=1024)
+    p.add_argument("--semilla", type=int, default=-1)
+    p.add_argument("--servidor", default="macbook")
+    p.add_argument("--puerto", default="7859")
+    p.add_argument("--listar", action="store_true")
+    a = p.parse_args()
+    if not a.listar and (not a.prompt or not a.foto):
+        p.error("hacen falta un prompt y al menos una --foto (o usa --listar)")
+    if len(a.foto) > 4:
+        p.error("maximo 4 fotos de referencia")
+
+    try:
+        info = pedir("/object_info", timeout=60)
+    except Exception as e:
+        sys.exit(f"ComfyUI no responde en {BASE}: {e}\n"
+                 f"Levantalo: cd linux/comfyui && docker compose up -d")
+
+    datos = urllib.parse.urlencode(
+        {"server": a.servidor, "port": a.puerto, "use_tls": "false"}).encode()
+    try:
+        catalogo = pedir("/dt_grpc/files_info", datos, timeout=120)
+    except Exception as e:
+        sys.exit(f"El Mac no da el catalogo: {e}\nDiagnostico: linux/scripts/verify-imagen.sh")
+
+    modelos = catalogo.get("models", [])
+    adaptadores = catalogo.get("controlNets", [])
+    loras = catalogo.get("loras", [])
+
+    if a.listar:
+        for etiqueta, lista in (("modelos", modelos), ("adaptadores", adaptadores), ("loras", loras)):
+            print(f"== {etiqueta} ({len(lista)})")
+            for x in lista:
+                print(f"   {x.get('name')}   [{x.get('file')}]")
+        return
+
+    if not modelos:
+        sys.exit("Catalogo vacio: falta 'Acceso a disco completo' en el Mac.")
+    modelo = buscar(modelos, a.modelo, "modelo")
+
+    adaptador = None
+    if adaptadores:
+        for x in adaptadores:
+            if a.adaptador.lower() in (x.get("name", "") + " " + x.get("file", "")).lower():
+                adaptador = x
+                break
+    if adaptador is None:
+        print(f"AVISO: no hay ningun adaptador de identidad que contenga "
+              f"'{a.adaptador}' en el Mac.\n"
+              f"       Se genera solo desde el prompt: las fotos NO se usaran.\n"
+              f"       Descargalo con mac/scripts/70-get-model.sh y recuerda que\n"
+              f"       tiene que ser el de la arquitectura de '{modelo.get('name')}'.",
+              file=sys.stderr)
+
+    grafo, n = {}, 0
+
+    def nodo(clase, extra):
+        nonlocal n
+        n += 1
+        grafo[str(n)] = {"class_type": clase,
+                         "inputs": {**por_defecto(info, clase), **extra}}
+        return str(n)
+
+    id_pos = nodo("DrawThingsPositive", {"positive": a.prompt})
+    id_neg = nodo("DrawThingsNegative", {"negative": a.negativo})
+
+    # Una referencia por foto, encadenadas: cada DrawThingsControlNet acepta
+    # un control_net de entrada, asi que se apilan en cascada.
+    cadena = None
+    if adaptador is not None:
+        for foto in a.foto:
+            nombre = subir(foto)
+            id_img = nodo("LoadImage", {"image": nombre})
+            extra = {
+                "control_name": {"value": adaptador},
+                "control_input_type": adaptador.get("modifier", "Shuffle").capitalize(),
+                "control_weight": a.peso,
+                "image": [id_img, 0],
+            }
+            if cadena:
+                extra["control_net"] = [cadena, 0]
+            cadena = nodo("DrawThingsControlNet", extra)
+
+    id_lora = None
+    if a.lora:
+        if not loras:
+            sys.exit("Pediste --lora pero no hay ninguno descargado en el Mac.")
+        el = buscar(loras, a.lora, "lora")
+        id_lora = nodo("DrawThingsLoRA",
+                       {"lora_name": {"value": el}, "lora_weight": a.peso_lora})
+
+    entradas = {
+        "server": a.servidor, "port": a.puerto, "use_tls": False,
+        "model": {"value": modelo},
+        "positive": [id_pos, 0], "negative": [id_neg, 0],
+        "width": a.ancho, "height": a.alto, "steps": a.pasos,
+        "cfg": a.cfg, "batch_size": 1,
+        "seed": a.semilla if a.semilla >= 0 else int(time.time()) % 4294967295,
+    }
+    if cadena:
+        entradas["control_net"] = [cadena, 0]
+    if id_lora:
+        entradas["lora"] = [id_lora, 0]
+    id_sam = nodo("DrawThingsSampler", entradas)
+    nodo("SaveImage", {"filename_prefix": "persona", "images": [id_sam, 0]})
+
+    print(f"modelo: {modelo.get('name')}")
+    if adaptador is not None:
+        print(f"identidad: {adaptador.get('name')}  x{len(a.foto)} foto(s), peso {a.peso}")
+    if id_lora:
+        print(f"lora: peso {a.peso_lora}")
+    print(f"{a.ancho}x{a.alto}, {a.pasos} pasos, semilla {entradas['seed']}")
+
+    try:
+        pid = pedir("/prompt", json.dumps({"prompt": grafo}).encode(), 90)["prompt_id"]
+    except urllib.error.HTTPError as e:
+        d = json.loads(e.read().decode())
+        for nid, err in d.get("node_errors", {}).items():
+            for x in err["errors"]:
+                clase = grafo.get(nid, {}).get("class_type", "?")
+                print(f"  nodo {nid} ({clase}): {x['message']} -> {x['details']}", file=sys.stderr)
+        sys.exit(1)
+
+    t0 = time.time()
+    while time.time() - t0 < 1800:
+        h = pedir(f"/history/{pid}", timeout=30)
+        if pid in h:
+            estado = h[pid]["status"]
+            if estado["status_str"] != "success":
+                print("FALLO:", file=sys.stderr)
+                for msg in estado.get("messages", []):
+                    if msg[0] == "execution_error":
+                        print("  ", msg[1].get("exception_message", "").strip(), file=sys.stderr)
+                sys.exit(1)
+            for _, out in h[pid]["outputs"].items():
+                for img in out.get("images", []):
+                    print(f"listo en {time.time()-t0:.0f}s: "
+                          f"linux/comfyui/data/output/{img['filename']}")
+            return
+        time.sleep(3)
+    sys.exit("sin resultado en 30 min")
+
+
+if __name__ == "__main__":
+    main()
