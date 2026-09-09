@@ -18,7 +18,7 @@ DT="$HOME/.drawthings"
 BIN="$DT/bin/gRPCServerCLI-macOS"
 SECRET_FILE="$DT/secret"
 MODELS_REAL="${MODELS_REAL:-$HOME/Library/Containers/com.liuliu.draw-things/Data/Documents/Models}"
-MODELS="$DT/models"
+MODELS="$MODELS_REAL"
 
 TS_CANDIDATOS=(
   /Applications/Tailscale.app/Contents/MacOS/Tailscale
@@ -29,28 +29,22 @@ TS_CANDIDATOS=(
 [[ -x "$BIN" ]] || { echo "No esta el servidor. Ejecuta 40-drawthings-install.sh" >&2; exit 1; }
 [[ -d "$MODELS_REAL" ]] || { echo "No existe $MODELS_REAL. ¿Abriste Draw Things al menos una vez?" >&2; exit 1; }
 
-# El servidor NO lee el directorio de la app directamente, sino un espejo de
-# enlaces simbolicos. Dos motivos, los dos comprobados a base de que fallara:
+# TCC: el directorio de modelos vive dentro del contenedor de otra app
+# (~/Library/Containers/com.liuliu.draw-things/...). macOS exige consentimiento
+# explicito para leerlo, y un proceso lanzado por launchd no tiene a quien
+# preguntar: se queda colgado al enumerarlo y deja de contestar a todo el
+# mundo, sin dar ni un error. El mismo binario contra el mismo directorio
+# funciona lanzado desde una sesion SSH.
 #
-# 1. TCC. Lanzado por launchd, el proceso se queda colgado al enumerar
-#    ~/Library/Containers/<app>/Data/Documents: macOS pide consentimiento para
-#    leer datos de otra app y un agente en segundo plano no tiene a quien
-#    preguntar. No da error: deja de contestar a todo el mundo. El mismo
-#    binario y el mismo directorio funcionan lanzados desde una sesion SSH.
+# Se arregla dando "Acceso a disco completo" a gRPCServerCLI-macOS en
+# Ajustes del Sistema -> Privacidad y seguridad. Ver README-IMAGEN.md.
 #
-# 2. Descargas a medias. Un `.partial` de la app bloquea el listado de modelos
-#    igual de silenciosamente. Aqui se excluyen.
-#
-# Efecto secundario: un modelo descargado con la app aparece tras reconstruir
-# el espejo, o sea al reiniciar el servidor:
-#   launchctl kickstart -k gui/$(id -u)/local.drawthings
-rm -rf "$MODELS"; mkdir -p "$MODELS"
-for f in "$MODELS_REAL"/*; do
-  [[ -e "$f" ]] || continue
-  case "$f" in *.partial|*.partial.map) continue;; esac
-  ln -s "$f" "$MODELS/$(basename "$f")"
-done
-echo "Espejo de modelos: $(find "$MODELS" -maxdepth 1 -name '*.ckpt' | wc -l | tr -d ' ') ficheros .ckpt"
+# Este aviso detecta el caso: si el listado sale vacio, el permiso falta.
+if ! ls "$MODELS_REAL"/*.ckpt >/dev/null 2>&1; then
+  echo "!! No puedo leer $MODELS_REAL" >&2
+  echo "!! Falta 'Acceso a disco completo' para $BIN" >&2
+  echo "!! Ajustes del Sistema -> Privacidad y seguridad -> Acceso a disco completo" >&2
+fi
 
 for c in "${TS_CANDIDATOS[@]}"; do
   [[ -x "$c" ]] && TS="$c" && break
