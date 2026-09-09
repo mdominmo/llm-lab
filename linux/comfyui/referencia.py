@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
-"""Genera imagenes de una persona a partir de fotos suyas.
+"""Genera imagenes usando otras imagenes como referencia.
 
-    linux/comfyui/persona.py "de senderismo en la montana, atardecer" \
-        --foto ~/fotos/cara1.jpg --foto ~/fotos/cara2.jpg
+    linux/comfyui/referencia.py "en la montana, atardecer" \
+        --ref entrada1.jpg --ref entrada2.jpg
 
-Sube las fotos a ComfyUI, las encadena como referencias de identidad y manda
-todo al servidor de Draw Things del Mac. Solo libreria estandar.
-
-QUE HACE Y QUE NO
-  El adaptador de identidad (PuLID) ancla la CARA. El cuerpo sale de lo que
-  escribas en el prompt: la complexion no se deduce de las fotos. Para que el
-  cuerpo tambien se parezca hace falta un LoRA entrenado de esa persona, que
-  se pasa aparte con --lora y se apila con esto.
+Sube las referencias a ComfyUI, las encadena y manda el trabajo al servidor
+de Draw Things del Mac. Solo libreria estandar.
 
 ABIERTO A CAMBIAR DE MODELO
-  Nada esta cableado a Flux ni a PuLID. El modelo y el adaptador se buscan por
-  nombre en el catalogo vivo del Mac (--modelo / --adaptador). Lo que NO es
-  portable son los pesos: un adaptador de identidad sirve solo para la
-  arquitectura con la que se entreno, asi que cambiar de modelo obliga a bajar
-  su adaptador equivalente. El script lo detecta y lo dice, no falla a ciegas.
+  Nada esta cableado a un modelo ni a un adaptador concretos: los dos se
+  buscan por nombre en el catalogo vivo del Mac (--modelo / --adaptador). Lo
+  que NO es portable son los pesos, porque un adaptador sirve solo para la
+  arquitectura con la que se entreno; cambiar de modelo obliga a bajar su
+  adaptador equivalente. El script lo detecta y lo dice en vez de generar en
+  silencio ignorando las referencias.
 """
 import argparse, json, mimetypes, os, sys, time, urllib.error, urllib.parse, urllib.request
 import uuid
@@ -35,18 +30,18 @@ def pedir(ruta, datos=None, timeout=90, cabeceras=None):
 def subir(ruta_local):
     """Sube una imagen a la carpeta input de ComfyUI y devuelve su nombre."""
     if not os.path.isfile(ruta_local):
-        sys.exit(f"No existe la foto: {ruta_local}")
+        sys.exit(f"No existe el fichero: {ruta_local}")
     nombre = os.path.basename(ruta_local)
     tipo = mimetypes.guess_type(nombre)[0] or "application/octet-stream"
     limite = "----" + uuid.uuid4().hex
-    cuerpo = b"".join([
+    payload = b"".join([
         f'--{limite}\r\nContent-Disposition: form-data; name="image"; '
         f'filename="{nombre}"\r\nContent-Type: {tipo}\r\n\r\n'.encode(),
         open(ruta_local, "rb").read(),
         f"\r\n--{limite}\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\ntrue\r\n".encode(),
         f"--{limite}--\r\n".encode(),
     ])
-    r = pedir("/upload/image", cuerpo, 120,
+    r = pedir("/upload/image", payload, 120,
               {"Content-Type": f"multipart/form-data; boundary={limite}"})
     return r["name"]
 
@@ -85,17 +80,17 @@ def buscar(lista, patron, que):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Genera a una persona a partir de sus fotos.")
+    p = argparse.ArgumentParser(description="Genera a partir de imagenes de referencia.")
     p.add_argument("prompt", nargs="?", default="")
-    p.add_argument("--foto", action="append", default=[],
-                   help="foto de referencia; repetir para varias (hasta 4)")
-    p.add_argument("--negativo", default="deformed, blurry, extra limbs")
+    p.add_argument("--ref", action="append", default=[],
+                   help="imagen de referencia; repetir para varias (hasta 4)")
+    p.add_argument("--negativo", default="deformed, blurry")
     p.add_argument("--modelo", help="parte del nombre; por defecto el primero")
-    p.add_argument("--adaptador", default="pulid",
-                   help="adaptador de identidad en el catalogo (por defecto: pulid)")
-    p.add_argument("--lora", help="LoRA de la persona, para el parecido de cuerpo")
+    p.add_argument("--adaptador", default="",
+                   help="adaptador del catalogo que consume las referencias")
+    p.add_argument("--lora", help="LoRA a aplicar")
     p.add_argument("--peso", type=float, default=0.9,
-                   help="fuerza de la identidad, 0-1 (por defecto 0.9)")
+                   help="fuerza de la referencia, 0-1 (por defecto 0.9)")
     p.add_argument("--peso-lora", type=float, default=0.8)
     p.add_argument("--pasos", type=int, default=20)
     p.add_argument("--cfg", type=float, default=3.5)
@@ -106,10 +101,10 @@ def main():
     p.add_argument("--puerto", default="7859")
     p.add_argument("--listar", action="store_true")
     a = p.parse_args()
-    if not a.listar and (not a.prompt or not a.foto):
-        p.error("hacen falta un prompt y al menos una --foto (o usa --listar)")
-    if len(a.foto) > 4:
-        p.error("maximo 4 fotos de referencia")
+    if not a.listar and (not a.prompt or not a.ref):
+        p.error("hacen falta un prompt y al menos una --ref (o usa --listar)")
+    if len(a.ref) > 4:
+        p.error("maximo 4 referencias")
 
     try:
         info = pedir("/object_info", timeout=60)
@@ -129,7 +124,8 @@ def main():
     loras = catalogo.get("loras", [])
 
     if a.listar:
-        for etiqueta, lista in (("modelos", modelos), ("adaptadores", adaptadores), ("loras", loras)):
+        for etiqueta, lista in (("modelos", modelos), ("adaptadores", adaptadores),
+                                ("loras", loras)):
             print(f"== {etiqueta} ({len(lista)})")
             for x in lista:
                 print(f"   {x.get('name')}   [{x.get('file')}]")
@@ -141,17 +137,15 @@ def main():
 
     adaptador = None
     if adaptadores:
-        for x in adaptadores:
-            if a.adaptador.lower() in (x.get("name", "") + " " + x.get("file", "")).lower():
-                adaptador = x
-                break
+        if a.adaptador:
+            adaptador = buscar(adaptadores, a.adaptador, "adaptador")
+        else:
+            adaptador = adaptadores[0]
     if adaptador is None:
-        print(f"AVISO: no hay ningun adaptador de identidad que contenga "
-              f"'{a.adaptador}' en el Mac.\n"
-              f"       Se genera solo desde el prompt: las fotos NO se usaran.\n"
-              f"       Descargalo con mac/scripts/70-get-model.sh y recuerda que\n"
-              f"       tiene que ser el de la arquitectura de '{modelo.get('name')}'.",
-              file=sys.stderr)
+        print("AVISO: no hay ningun adaptador descargado en el Mac.\n"
+              "       Se genera solo desde el prompt: las referencias NO se usaran.\n"
+              "       Bajalo con mac/scripts/70-get-model.sh, y que sea el de la\n"
+              f"       arquitectura de '{modelo.get('name')}'.", file=sys.stderr)
 
     grafo, n = {}, 0
 
@@ -165,12 +159,12 @@ def main():
     id_pos = nodo("DrawThingsPositive", {"positive": a.prompt})
     id_neg = nodo("DrawThingsNegative", {"negative": a.negativo})
 
-    # Una referencia por foto, encadenadas: cada DrawThingsControlNet acepta
-    # un control_net de entrada, asi que se apilan en cascada.
+    # Una entrada por referencia, encadenadas: cada DrawThingsControlNet
+    # acepta otro control_net de entrada, asi que se apilan en cascada.
     cadena = None
     if adaptador is not None:
-        for foto in a.foto:
-            nombre = subir(foto)
+        for ref in a.ref:
+            nombre = subir(ref)
             id_img = nodo("LoadImage", {"image": nombre})
             extra = {
                 "control_name": {"value": adaptador},
@@ -203,11 +197,11 @@ def main():
     if id_lora:
         entradas["lora"] = [id_lora, 0]
     id_sam = nodo("DrawThingsSampler", entradas)
-    nodo("SaveImage", {"filename_prefix": "persona", "images": [id_sam, 0]})
+    nodo("SaveImage", {"filename_prefix": "ref", "images": [id_sam, 0]})
 
     print(f"modelo: {modelo.get('name')}")
     if adaptador is not None:
-        print(f"identidad: {adaptador.get('name')}  x{len(a.foto)} foto(s), peso {a.peso}")
+        print(f"adaptador: {adaptador.get('name')}  x{len(a.ref)} ref(s), peso {a.peso}")
     if id_lora:
         print(f"lora: peso {a.peso_lora}")
     print(f"{a.ancho}x{a.alto}, {a.pasos} pasos, semilla {entradas['seed']}")
@@ -219,7 +213,8 @@ def main():
         for nid, err in d.get("node_errors", {}).items():
             for x in err["errors"]:
                 clase = grafo.get(nid, {}).get("class_type", "?")
-                print(f"  nodo {nid} ({clase}): {x['message']} -> {x['details']}", file=sys.stderr)
+                print(f"  nodo {nid} ({clase}): {x['message']} -> {x['details']}",
+                      file=sys.stderr)
         sys.exit(1)
 
     t0 = time.time()
@@ -231,7 +226,8 @@ def main():
                 print("FALLO:", file=sys.stderr)
                 for msg in estado.get("messages", []):
                     if msg[0] == "execution_error":
-                        print("  ", msg[1].get("exception_message", "").strip(), file=sys.stderr)
+                        print("  ", msg[1].get("exception_message", "").strip(),
+                              file=sys.stderr)
                 sys.exit(1)
             for _, out in h[pid]["outputs"].items():
                 for img in out.get("images", []):
