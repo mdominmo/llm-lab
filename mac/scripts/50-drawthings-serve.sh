@@ -48,6 +48,21 @@ done
 LMS="$HOME/.lmstudio/bin/lms"
 [[ -x "$LMS" ]] && "$LMS" unload --all >/dev/null 2>&1 || true
 
+# TLS desactivado a proposito. El certificado que genera gRPCServerCLI esta
+# emitido para localhost:
+#   subject=CN=localhost   SAN: DNS:localhost, DNS:*, IP:127.0.0.1, IP:0.0.0.0
+# Es decir, asume que el cliente corre en la misma maquina (la app de Draw
+# Things). Desde el PC, conectando a `macbook`, la verificacion de nombre
+# falla siempre: "Hostname Verification failed". No hay opcion para dar otro
+# nombre ni para aportar un certificado propio.
+#
+# No se pierde cifrado: el trafico va por el tailnet, que es WireGuard de
+# extremo a extremo. El TLS de aqui solo anadiria una segunda capa sobre un
+# canal ya cifrado, y encima con un certificado que no se puede validar.
+#
+# Alternativa descartada: tunel SSH para que el destino sea `localhost` y el
+# certificado cuadre. Funciona, pero mete una pieza mas que tiene que estar
+# levantada antes que ComfyUI y reconectar sola. No compensa.
 ARGS=(
   "$MODELS"
   --address "$IP"
@@ -55,6 +70,7 @@ ARGS=(
   --name "macbook-imagen"
   --model-browser
   --no-response-compression
+  --no-tls
 )
 [[ -s "$SECRET_FILE" ]] && ARGS+=(--shared-secret "$(cat "$SECRET_FILE")")
 
