@@ -37,14 +37,13 @@ TS_CANDIDATOS=(
 # funciona lanzado desde una sesion SSH.
 #
 # Se arregla dando "Acceso a disco completo" a gRPCServerCLI-macOS en
-# Ajustes del Sistema -> Privacidad y seguridad. Ver README-IMAGEN.md.
+# Ajustes del Sistema -> Privacidad y seguridad. Es un paso manual, con raton,
+# y sin el nada de esto funciona. Ver la Fase 0 de README-IMAGEN.md.
 #
-# Este aviso detecta el caso: si el listado sale vacio, el permiso falta.
-if ! ls "$MODELS_REAL"/*.ckpt >/dev/null 2>&1; then
-  echo "!! No puedo leer $MODELS_REAL" >&2
-  echo "!! Falta 'Acceso a disco completo' para $BIN" >&2
-  echo "!! Ajustes del Sistema -> Privacidad y seguridad -> Acceso a disco completo" >&2
-fi
+# No se comprueba aqui: el permiso lo tiene el BINARIO, no este script. Un
+# `ls` desde bash falla igual aunque el servidor si pueda leer, asi que
+# avisaria en falso. Quien lo comprueba de verdad es verify-imagen.sh,
+# preguntandole el catalogo al servidor ya arrancado.
 
 for c in "${TS_CANDIDATOS[@]}"; do
   [[ -x "$c" ]] && TS="$c" && break

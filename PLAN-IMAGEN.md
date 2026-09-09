@@ -155,15 +155,41 @@ Se ata con `--address`, resolviendo la IP igual que hace `mac/scripts/20-serve.s
 --address "$(tailscale ip -4 | head -1)"
 ```
 
-Mejora sobre el motor de texto: aquí **sí hay autenticación**. `--shared-secret` exige un
-secreto compartido en cada petición. LM Studio no ofrece nada equivalente. Se usa: la red
-es la primera barrera, el secreto la segunda.
+Sobre el papel hay además autenticación (`--shared-secret`), que LM Studio no ofrece. **En
+la práctica no se puede usar con este cliente:** ver §4.4.
 
-### 4.4 TLS activado
+### 4.4 Sin secreto compartido y sin TLS — comprobado, no asumido
 
-`gRPCServerCLI` trae TLS encendido; `--no-tls` lo apaga. Se deja encendido — la extensión
-oficial de ComfyUI lo recomienda y el tráfico ya cruza el tailnet cifrado, pero apagarlo
-solo ahorraría configurar el cliente.
+Las dos defensas que `gRPCServerCLI` ofrece por encima del tailnet resultaron
+inservibles con la extensión oficial de ComfyUI. Se documentan porque parecen descuidos
+y no lo son.
+
+**El secreto compartido.** El nodo de ComfyUI expone tres entradas: `server`, `port` y
+`use_tls`. No hay campo para el secreto ni forma de inyectarlo. Con `--shared-secret`
+puesto, el servidor responde a cualquier petición con `sharedSecretMissing` y el catálogo
+llega vacío: no se puede ni elegir modelo. Queda *opt-in* con `DT_USE_SECRET=1` para el
+día en que el cliente sea un script propio que sepa mandarlo.
+
+**TLS.** Va encendido por defecto, pero el certificado que genera el servidor es:
+
+```
+subject=CN=localhost   SAN: DNS:localhost, DNS:*, IP:127.0.0.1, IP:0.0.0.0
+```
+
+Asume que el cliente corre en la misma máquina. Conectando a `macbook` desde el PC la
+verificación de nombre falla siempre (`Hostname Verification failed`), y el binario no
+admite ni un nombre alternativo ni aportar un certificado propio. Se apaga con `--no-tls`.
+
+No se pierde cifrado: **el tailnet ya es WireGuard de extremo a extremo**. El TLS de aquí
+solo añadiría una segunda capa sobre un canal ya cifrado, con un certificado que además
+no se puede validar.
+
+*Alternativa descartada:* túnel SSH para que el destino sea `localhost` y el certificado
+cuadre. Funciona, pero mete una pieza que tiene que estar levantada antes que ComfyUI y
+reconectar sola. No compensa.
+
+**Conclusión:** la barrera real es la misma que la del motor de texto — el puerto solo
+escucha en `100.x`. Quien no esté en el tailnet no llega.
 
 ### 4.5 ComfyUI en el PC, en Docker, primero **sin GPU**
 
@@ -270,7 +296,7 @@ el sistema está completo y es usable por sí solo.
 | Fichero nuevo | Qué hace |
 |---|---|
 | `mac/scripts/40-drawthings-install.sh` | Descarga `gRPCServerCLI-macOS` de la release fijada, verifica el SHA, lo deja en `/usr/local/bin`, `chmod +x`, quita la cuarentena de Gatekeeper |
-| `mac/scripts/50-drawthings-serve.sh` | Espera al tailnet (mismo bucle de 2 min que `20-serve.sh`), descarga los modelos de LM Studio, y lanza el servidor atado a la IP del tailnet con `--model-browser --no-response-compression --shared-secret` |
+| `mac/scripts/50-drawthings-serve.sh` | Espera al tailnet (mismo bucle de 2 min que `20-serve.sh`), descarga los modelos de LM Studio, y lanza el servidor atado a la IP del tailnet con `--model-browser --no-response-compression --no-tls` |
 | `mac/launchd/local.drawthings.plist` | LaunchAgent que llama al anterior al iniciar sesión. Agent y no Daemon: Metal exige sesión gráfica |
 | `mac/.drawthings-secret` | El secreto compartido, generado al vuelo. **No se versiona** |
 
@@ -312,14 +338,23 @@ primera etapa siguen funcionando igual, y el Mac no se toca.
 
 ## 7. Riesgos conocidos
 
-**El sandbox de la app.** Los modelos viven bajo `~/Library/Containers/`. Un proceso de
-launchd leyendo ahí puede toparse con TCC y necesitar *Acceso a disco completo* para
-`gRPCServerCLI`. La documentación oficial propone esa ruta, así que debería funcionar,
-pero es el primer sitio donde mirar si el servidor arranca y no ve ningún modelo.
+**El sandbox de la app — se confirmó, y es el paso manual que faltaba.** Los modelos viven
+bajo `~/Library/Containers/`. Lanzado por launchd, `gRPCServerCLI` **se cuelga** al
+enumerar ese directorio: macOS pide consentimiento para leer datos de otra app y un
+agente de fondo no tiene a quien preguntar. No da error — deja de contestar a todo el
+mundo, y desde fuera parece un problema de red. El mismo binario contra el mismo
+directorio funciona lanzado desde una sesión SSH, lo que despista todavía más.
 
-**El secreto compartido en ComfyUI.** La extensión oficial no documenta si expone campo
-para `--shared-secret`. Si no lo soporta, se arranca sin él: el tailnet sigue siendo la
-barrera real, exactamente igual que con LM Studio hoy.
+Se arregla dando *Acceso a disco completo* a `gRPCServerCLI-macOS`, a mano, una vez
+(Fase 0.b del runbook). Intento descartado: servir un espejo de enlaces simbólicos fuera
+del contenedor. No vale, porque el script que construiría el espejo corre también bajo
+launchd y tampoco puede listar el directorio — salió con cero ficheros.
+
+**Un `.partial` cuelga el servidor.** Una descarga de modelo interrumpida deja un fichero
+`.partial` en la carpeta, y al construir el catálogo el servidor intenta leerlo y se
+bloquea: acepta la conexión TCP pero nunca contesta
+(`timed out before receiving SETTINGS frame`). Mismo síntoma que el problema de TCC y
+causa distinta. `verify-imagen.sh` comprueba las dos.
 
 **El secreto viaja en la línea de comandos.** `--shared-secret` es un argumento, así que
 cualquier `ps` en el Mac lo muestra en claro. `gRPCServerCLI` no admite leerlo de una
