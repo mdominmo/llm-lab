@@ -72,7 +72,21 @@ ARGS=(
   --no-response-compression
   --no-tls
 )
-[[ -s "$SECRET_FILE" ]] && ARGS+=(--shared-secret "$(cat "$SECRET_FILE")")
+# Secreto compartido: DESACTIVADO por defecto, y no por descuido.
+#
+# La extension oficial de ComfyUI no tiene campo para enviarlo (sus entradas
+# son server, port y use_tls, nada mas). Con el secreto puesto, el servidor
+# responde a cualquier peticion con `sharedSecretMissing` y el catalogo de
+# modelos llega vacio, asi que el cliente no puede ni elegir modelo.
+#
+# La barrera real sigue siendo el tailnet: el puerto solo escucha en 100.x,
+# igual que LM Studio en :1234. Quien no este en tu tailnet no llega.
+#
+# Para activarlo (util si algun dia el cliente es un script propio que si
+# sepa mandarlo):  DT_USE_SECRET=1 mac/scripts/50-drawthings-serve.sh
+if [[ "${DT_USE_SECRET:-0}" == "1" && -s "$SECRET_FILE" ]]; then
+  ARGS+=(--shared-secret "$(cat "$SECRET_FILE")")
+fi
 
 echo "Atando Draw Things a $IP:$PORT (solo tailnet). Modelos: $MODELS"
 exec "$BIN" "${ARGS[@]}"
